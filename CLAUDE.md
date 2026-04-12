@@ -18,8 +18,8 @@ These are duplicated here from `~/agents-config/INDEX_RULES.md` so you see the h
 **Repository:** `brando90/mini_hbf_tensorflow_code`
 **Author:** Brando Miranda (brando90@mit.edu)
 **License:** MIT
-**Language:** Python 2 (legacy TensorFlow 1.x with `tf.contrib`)
-**Status:** Research prototype from MIT MEng thesis (~2016) -- being consolidated as the master HBF project
+**Language:** Python 3.11+ / PyTorch (primary), Python 2 / TensorFlow 1.x (legacy)
+**Status:** Active -- PyTorch port complete, consolidating as master HBF project
 
 This project implements **Hierarchical Basis Function (HBF)** neural networks -- a biologically-inspired architecture related to HMAX models that uses Radial Basis Function (RBF/Gaussian) activations instead of ReLU/sigmoid. The core idea: each hidden layer computes a soft nearest-neighbor match between inputs and learned templates (centroids), using `exp(-beta * ||x - w||^2)` as the activation function.
 
@@ -40,12 +40,33 @@ The key contribution is showing that deep HBF networks (depth >= 2) can approxim
 mini_hbf_tensorflow_code/
 ├── CLAUDE.md                       # This file -- agent entry point
 ├── README.md                       # Minimal project readme
-├── my_tf_proj/                     # Installable Python package
+│
+├── hbf/                            # PRIMARY: PyTorch HBF package
+│   ├── __init__.py                 # Public API re-exports
+│   ├── models.py                   # HBFLayer, HBFNetwork, StandardNNLayer, StandardNNNetwork
+│   ├── data.py                     # 1D/2D data generation + PyTorch Dataset wrapper
+│   ├── initializations.py          # truncated_normal, data, kernel, kpp init strategies
+│   └── krls.py                     # KRLS + cross-validation (numpy, framework-agnostic)
+│
+├── tests/                          # Test suite (pytest)
+│   └── test_hbf.py                 # 25 unit tests covering models, data, init, KRLS
+│
+├── experiments/                    # Experiment structure (agents-config pattern)
+│   └── 01_sanity_check_pytorch_port/
+│       ├── README.md               # Experiment description and status
+│       └── expt_v1/
+│           ├── run_sanity.py       # 7-model training sanity check
+│           └── results/            # JSON results with timestamps
+│
+├── docs/                           # Documentation
+│   └── related_work.md             # Literature survey: HBF, HMAX, deep RBF (2016-2024)
+│
+├── my_tf_proj/                     # LEGACY: Original TensorFlow package
 │   ├── setup.py                    # setuptools config (name='my_tf_proj', v0.1.0)
-│   └── my_tf_pkg/                  # Core library modules
+│   └── my_tf_pkg/                  # Core library modules (Python 2 / TF 1.x)
 │       ├── __init__.py             # Wildcard re-exports from all modules
 │       ├── hbf_nn_builder.py       # HBF and standard NN layer/network builders
-│       ├── initializations.py      # Weight initialization strategies (data_init, kern_init, kpp_init)
+│       ├── initializations.py      # Weight initialization strategies
 │       ├── f_1D_data.py            # 1D function approximation data generation
 │       ├── f_2D_data.py            # 2D function approximation data generation
 │       ├── kernel_methods.py       # Kernel/RBF utility functions
@@ -55,20 +76,11 @@ mini_hbf_tensorflow_code/
 │       ├── plotting_1D.py          # 1D visualization functions
 │       ├── plotting_functions.py   # General matplotlib plotting utilities
 │       └── save_workspace.py       # Shelve-based workspace save/load
-└── tf_experiments_scripts/         # Runnable experiment scripts
+│
+└── tf_experiments_scripts/         # LEGACY: TF experiment scripts
     ├── main_nn.py                  # PRIMARY entry point -- trains HBF or standard NN
     ├── MNIST_example.py            # MNIST classification experiment
-    ├── krls.py                     # KRLS baseline experiment
-    ├── f2D_krls.py                 # 2D function fitting with KRLS
-    ├── f2D_krls_random.py          # 2D KRLS with random hyperparameters
-    ├── f2D_recursive_krls.py       # Recursive KRLS on 2D functions
-    ├── f2D_plot_original_func.py   # Visualization of target 2D functions
-    ├── generate_2D_data.py         # Data generation script
-    ├── get_sense_norm.py           # Norm analysis utilities
-    ├── get_stuff.py                # Misc extraction script
-    ├── krls_collect_data.py        # KRLS data collection
-    ├── krls_plot_errrors_script.py  # Error curve plotting
-    └── multiple_vs_single_collect_results.py  # Multi-model comparison
+    └── ...                         # Other experiment scripts (see README)
 ```
 
 ---
@@ -94,25 +106,27 @@ This differs from standard NN layers which compute `ReLU(X @ W + b)`.
 
 ## Build & Install
 
+### PyTorch (primary)
+
 ```bash
-cd my_tf_proj
-pip install -e .    # Development install
-# or
-python setup.py install
+pip install torch numpy scipy scikit-learn matplotlib
+# No package install needed -- import directly:
+#   from hbf.models import HBFNetwork
+#   from hbf.data import get_data
 ```
 
-### Dependencies (implicit -- not all in setup.py)
+### Dependencies
 
-- **Required:** numpy >= 1.11.0, tensorflow (1.x with contrib), scikit-learn, scipy
-- **Visualization:** matplotlib (with mpl_toolkits.mplot3d)
-- **System:** Python 2.7 (uses `print` statements, `xrange`, `encode('hex')`)
+- **Required:** torch >= 2.0, numpy, scikit-learn, scipy
+- **Testing:** pytest
+- **Visualization:** matplotlib
 
-### Known Compatibility Issues
+### Legacy TensorFlow (reference only)
 
-- `tensorflow.contrib.*` was removed in TensorFlow 2.x
-- `sklearn.cross_validation` was deprecated (now `sklearn.model_selection`)
-- Python 2 print statements (`print 'foo'`) need parentheses for Python 3
-- `xrange` does not exist in Python 3
+```bash
+cd my_tf_proj && pip install -e .
+# Requires Python 2.7, TensorFlow 1.x, sklearn with cross_validation
+```
 
 ---
 
@@ -194,30 +208,40 @@ The goal is to unify all HBF code into this repository:
 
 ---
 
-## Migration Roadmap: TensorFlow to PyTorch
+## Migration Status: TensorFlow to PyTorch
 
-This codebase currently uses legacy TensorFlow 1.x (Python 2). The planned migration path:
+The PyTorch port is **complete**. All core functionality has been ported:
 
-1. **Port core HBF layer** (`get_HBF_layer2`) to `torch.nn.Module`
-2. **Port standard NN builder** to PyTorch (straightforward -- uses standard ops)
-3. **Port initialization strategies** (data_init, kern_init, kpp_init) to work with PyTorch tensors
-4. **Port KRLS/cross-validation** utilities (numpy-based, mostly framework-agnostic)
-5. **Update data loading** to use PyTorch `Dataset`/`DataLoader`
-6. **Modernize Python** to Python 3.8+ (print functions, type hints, f-strings)
-7. **Add tests** (currently no test suite exists)
+- [x] **HBF layer** (`HBFLayer` in `hbf/models.py`) -- `torch.nn.Module` with learnable W, S
+- [x] **Standard NN builder** (`StandardNNNetwork`) -- ReLU + optional batch norm
+- [x] **Initialization strategies** -- truncated_normal, data_init, kern_init, kpp_init
+- [x] **KRLS/cross-validation** -- numpy-based, framework-agnostic
+- [x] **Data loading** -- PyTorch `Dataset`/`DataLoader` wrapper + numpy generators
+- [x] **Python 3** -- f-strings, type hints, modern sklearn API
+- [x] **Tests** -- 25 unit tests, all passing
+- [x] **Sanity check experiment** -- 7 models trained, 4/4 checks passed
+
+### Remaining work
+- [ ] Convolutional HBF layer (for image tasks)
+- [ ] MNIST / CIFAR experiments in PyTorch
+- [ ] Merge code from sibling HBF repositories
+- [ ] Formal package install (pyproject.toml)
 
 ---
 
 ## Testing
 
-**Current state:** No test suite exists. Experiment scripts in `tf_experiments_scripts/` serve as integration tests.
-
-**Planned:**
 ```bash
-# After PyTorch migration:
-pytest tests/           # Unit tests
-pytest tests/ -k hbf    # HBF-specific tests
+pytest tests/test_hbf.py -v      # 25 unit tests (all passing)
+pytest tests/ -k "HBFLayer"      # Run HBF layer tests only
+pytest tests/ -k "KRLS"          # Run KRLS tests only
+
+# Full experiment sanity check:
+python experiments/01_sanity_check_pytorch_port/expt_v1/run_sanity.py
 ```
+
+Tests cover: HBF layer shape/positivity/RBF-numpy-match, gradient flow, 1D regression,
+batch norm, all 4 initialization strategies, KRLS kernel matrix, and data generation.
 
 ---
 
